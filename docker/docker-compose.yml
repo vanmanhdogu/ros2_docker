@@ -1,0 +1,56 @@
+services:
+  ros2_foxy:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        # Hardcoded, NOT interpolated: the shell environment overrides .env in
+        # compose, so a sourced /opt/ros/<other>/setup.bash on the host would
+        # leak its ROS_DISTRO in here and break the apt package names.
+        ROS_DISTRO: foxy
+        USERNAME: ${USERNAME:-dogux}
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+        WS_DIR: ${WS_DIR:-/home/dogux/ros2_foxy_ws}
+        VIDEO_GID: ${VIDEO_GID:-44}
+        RENDER_GID: ${RENDER_GID:-992}
+    image: ros2-foxy-ws:latest
+    container_name: ros2_foxy_ws
+    hostname: ros2-foxy
+
+    # host networking + host IPC: DDS discovery and X shared memory both
+    # behave like a native install this way.
+    network_mode: host
+    ipc: host
+
+    environment:
+      # ROS 2 has no roscore: nodes find each other over DDS. Peers must share
+      # a ROS_DOMAIN_ID; set ROS_LOCALHOST_ONLY=1 to stay off the LAN.
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - ROS_LOCALHOST_ONLY=${ROS_LOCALHOST_ONLY:-0}
+      - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      - DISPLAY=${DISPLAY}
+      - XAUTHORITY=/tmp/.docker.xauth
+      - QT_X11_NO_MITSHM=1
+      # 1 = llvmpipe software rendering; use it if GUIs crash on the iGPU.
+      - LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE:-0}
+
+    volumes:
+      # Whole workspace, so colcon's build/install/log persist on the host.
+      - ..:${WS_DIR:-/home/dogux/ros2_foxy_ws}
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /tmp/.docker.xauth:/tmp/.docker.xauth:rw
+      - ${HOME}/.ssh:/home/${USERNAME:-dogux}/.ssh:ro
+
+    devices:
+      - /dev/dri:/dev/dri          # Intel iGPU for rviz2 / gazebo
+
+    # Uncomment for a USB device (lidar, serial MCU) and add the right group:
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    # group_add:
+    #   - "20"                     # host 'dialout' gid
+
+    stdin_open: true
+    tty: true
+    command: bash
